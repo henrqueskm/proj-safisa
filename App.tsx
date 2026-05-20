@@ -57,6 +57,7 @@ const App: React.FC = () => {
     } else {
       document.body.classList.remove('theme-light');
     }
+    localStorage.setItem('safisa-theme', themeState);
   }, [themeState]);
 
   const [isSystemSettingsPasswordPromptOpen, setIsSystemSettingsPasswordPromptOpen] = useState(false);
@@ -272,7 +273,7 @@ const App: React.FC = () => {
   return (
     <AppProvider value={appContextValue}>
       <div className="min-h-screen flex flex-col transition-colors duration-300 bg-slate-900 text-slate-100 print:bg-white">
-      <Toaster position="top-right" richColors closeButton theme="light" />
+      <Toaster position="top-right" richColors closeButton theme={themeState} />
       {!activeRole ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-950 relative overflow-hidden">
           {loggedInUser ? (
@@ -554,18 +555,7 @@ const App: React.FC = () => {
                 </button>
               )}
               <button 
-                onClick={() => {
-                  const isLight = document.body.classList.contains('theme-light');
-                  if (isLight) {
-                    document.body.classList.remove('theme-light');
-                    localStorage.setItem('safisa-theme', 'dark');
-                  } else {
-                    document.body.classList.add('theme-light');
-                    localStorage.setItem('safisa-theme', 'light');
-                  }
-                  // Force a re-render to update the icon
-                  setThemeState(!isLight ? 'light' : 'dark');
-                }}
+                onClick={() => setThemeState(currentTheme => currentTheme === 'light' ? 'dark' : 'light')}
                 className="hidden sm:flex items-center justify-center p-2 rounded-xl transition-all hover:bg-slate-800 text-slate-400 hover:text-white"
                 title="Alternar Tema (Claro/Escuro)"
                aria-label="Alternar Tema (Claro/Escuro)">
@@ -582,7 +572,7 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 print:max-w-none print:p-0 print:bg-white">
+          <main className="flex-1 w-full print:max-w-none print:p-0 print:bg-white">
             {activeRole === UserRole.ADMIN && <AdminView orders={orders} assembledUnits={assembledUnits} kits={kits} kitData={kitData} servoModelData={servoModelData} customers={customers} kitImages={kitImages} partRegistry={partRegistry} safisaIcon={safisaIcon} auditLogs={auditLogs} addOrder={addOrder} deleteOrder={deleteOrder} updateStatus={async (id, s, ex) => {
               if (!loggedInUser) {
                 toast.error("Ação Bloqueada", { description: "Você precisa estar logado para alterar o status." });

@@ -60,6 +60,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [showTabs, setShowTabs] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showQueueByOrder, setShowQueueByOrder] = useState(false);
 
   React.useEffect(() => {
     let needsUpdate = false;
@@ -118,6 +119,33 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
     // Wait, if we filter them out, they won't be identified. Let's keep them if needed > 0 or linked > 0
     return Object.entries(queue).filter(([_, stats]) => stats.needed > 0 || stats.linked > 0).sort((a, b) => b[1].needed - a[1].needed);
   }, [selectedOrders, units]);
+
+  const productionQueueByOrder = useMemo(() => {
+    return selectedOrders
+      .map(order => {
+        const groups: Record<string, { model: string; orientation: ServoOrientation; quantity: number }> = {};
+
+        (order.items || [])
+          .filter(item => item.type === 'SERVO' && !item.guaranteeNumber)
+          .forEach(item => {
+            const orientation = item.orientation || 'NORMAL';
+            const modelName = normalizeModelName(item.model);
+            const key = `${modelName}|${orientation}`;
+            if (!groups[key]) {
+              groups[key] = { model: modelName, orientation, quantity: 0 };
+            }
+            groups[key].quantity += 1;
+          });
+
+        return {
+          order,
+          items: Object.values(groups).sort((a, b) => a.model.localeCompare(b.model) || a.orientation.localeCompare(b.orientation)),
+          totalNeeded: Object.values(groups).reduce((sum, item) => sum + item.quantity, 0)
+        };
+      })
+      .filter(group => group.totalNeeded > 0)
+      .sort((a, b) => a.order.createdAt - b.order.createdAt);
+  }, [selectedOrders]);
 
   const filteredHistory = useMemo(() => {
     const q = safeToUpper(searchHistory);
@@ -217,7 +245,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
       />
 
       <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'lg:pl-70' : ''}`}>
-        <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 pb-12">
+        <div className="w-full p-3 md:p-6 space-y-8 pb-12">
           {/* Header com Navegação Principal e Busca */}
           <div className="flex flex-col lg:flex-row gap-4 items-center justify-between no-print bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
             <div className="flex items-center gap-4">
@@ -322,18 +350,79 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
            <div className="lg:col-span-1 space-y-4 no-print">
               <button 
                 onClick={() => handleOpenForm()} 
-                className="w-full bg-slate-950/50 border-2 border-dashed border-slate-700 p-6 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-white hover:border-slate-500 transition-all group"
+                className="stock-production-button w-full bg-slate-950/50 border-2 border-dashed border-slate-700 p-6 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-white hover:border-slate-500 transition-all group"
                aria-label="Produzir para Estoque">
                 <Plus size={24} className="mb-1 group-hover:scale-110 transition-transform" />
                 <span className="text-[10px] font-bold uppercase tracking-widest">Produzir para Estoque</span>
               </button>
 
               <div className="pt-4 space-y-4">
-                <div className="flex justify-between items-center ml-2">
-                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fila de Produção</h3>
-                   <button onClick={printContent} title="Imprimir Fila de Produção" className="p-2 bg-white rounded-xl border hover:bg-slate-50 transition-colors" aria-label="Imprimir Fila de Produção"><Printer size={16}/></button>
+                <div className="flex justify-between items-center gap-3 ml-2">
+                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                     {showQueueByOrder ? 'Fila por Pedido' : 'Fila de Produção'}
+                   </h3>
+                   <div className="flex items-center gap-2">
+                     <button
+                       onClick={() => setShowQueueByOrder(value => !value)}
+                       className="px-3 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5"
+                       aria-label={showQueueByOrder ? 'Mostrar fila geral' : 'Expandir fila por pedido'}
+                       title={showQueueByOrder ? 'Mostrar fila geral' : 'Expandir fila por pedido'}
+                     >
+                       {showQueueByOrder ? <EyeOff size={14} /> : <Eye size={14} />}
+                       {showQueueByOrder ? 'Geral' : 'Pedidos'}
+                     </button>
+                     <button onClick={printContent} title="Imprimir Fila de Produção" className="p-2 bg-white rounded-xl border hover:bg-slate-50 transition-colors" aria-label="Imprimir Fila de Produção"><Printer size={16}/></button>
+                   </div>
                 </div>
-                {productionQueue.length === 0 ? (
+                {showQueueByOrder ? (
+                  productionQueueByOrder.length === 0 ? (
+                    <div className="p-10 border border-dashed border-slate-700 rounded-xl text-center opacity-40">
+                       <ClipboardList size={32} className="mx-auto mb-2 text-slate-500" />
+                       <p className="text-[10px] font-semibold uppercase text-slate-500">Nenhum servo pendente por pedido</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {productionQueueByOrder.map(({ order, items, totalNeeded }) => (
+                        <div key={order.id} className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm">
+                          <div className="px-4 py-3 bg-slate-900 border-b border-slate-700">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-white uppercase truncate">{order.customerName}</h4>
+                                <div className="flex flex-wrap items-center gap-2 mt-1 text-[9px] font-semibold uppercase text-slate-500">
+                                  <span>{safeFormatDate(order.createdAt) || 'Sem data'}</span>
+                                  <span>{order.carrier || 'Sem transportadora'}</span>
+                                </div>
+                              </div>
+                              <span className="shrink-0 bg-slate-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">
+                                {totalNeeded}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="divide-y divide-slate-700/50">
+                            {items.map(item => (
+                              <div key={`${order.id}-${item.model}-${item.orientation}`} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-700/30 transition-colors">
+                                <div className="min-w-0">
+                                  <span className="block text-xs font-semibold text-white uppercase truncate">{item.model}</span>
+                                  <span className="block text-[9px] text-slate-500 font-medium uppercase">{ORIENTATION_LABELS[item.orientation]}</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="text-[10px] font-black text-slate-300 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">{item.quantity} un</span>
+                                  <button
+                                    onClick={() => handleOpenForm(item.model, item.orientation)}
+                                    className="p-2 bg-slate-900 border border-slate-700 text-slate-400 rounded-lg hover:text-white hover:border-slate-500 transition-all"
+                                    aria-label="Produzir servo do pedido"
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ) : productionQueue.length === 0 ? (
                   <div className="p-10 border border-dashed border-slate-700 rounded-xl text-center opacity-40">
                      <ClipboardList size={32} className="mx-auto mb-2 text-slate-500" />
                      <p className="text-[10px] font-semibold uppercase text-slate-500">Sem demanda programada</p>

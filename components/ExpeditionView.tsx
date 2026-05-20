@@ -1417,7 +1417,7 @@ const ExpeditionView: React.FC<ExpeditionViewProps> = ({
         }}
       />
       
-      <div className={`transition-all duration-300 w-full ${isSidebarOpen ? 'lg:pl-[280px]' : ''}`}>
+      <div className={`transition-all duration-300 w-full p-3 md:p-4 ${isSidebarOpen ? 'lg:pl-[280px]' : ''}`}>
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between no-print">
         {showTabs && (
@@ -1951,7 +1951,7 @@ const ExpeditionView: React.FC<ExpeditionViewProps> = ({
                              <span className="block font-black text-lg italic leading-none tracking-tighter uppercase">{lp.model}</span>
                           </div>
                           <div className="text-right">
-                             <span className="block text-2xl font-black text-white tracking-tighter bg-black px-3 py-1 rounded-lg inline-block">{lp.totalUnits}</span>
+                             <span className="prep-total-badge block text-2xl font-black text-white tracking-tighter bg-black px-3 py-1 rounded-lg inline-block">{lp.totalUnits}</span>
                              <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest">UNIDADES TOTAIS</span>
                           </div>
                        </div>
@@ -2020,7 +2020,7 @@ const ExpeditionView: React.FC<ExpeditionViewProps> = ({
                              <span className="block font-black text-lg italic leading-none tracking-tighter uppercase">{rp.model}</span>
                           </div>
                           <div className="text-right">
-                             <span className="block text-2xl font-black text-white tracking-tighter bg-black px-3 py-1 rounded-lg inline-block">{rp.totalUnits}</span>
+                             <span className="prep-total-badge block text-2xl font-black text-white tracking-tighter bg-black px-3 py-1 rounded-lg inline-block">{rp.totalUnits}</span>
                              <span className="block text-[8px] font-black text-slate-400 uppercase tracking-widest">UNIDADES TOTAIS</span>
                           </div>
                        </div>

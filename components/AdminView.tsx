@@ -74,6 +74,7 @@ const AdminView: React.FC<AdminViewProps> = ({
   const [customRepresentative, setCustomRepresentative] = useState('');
   const [negotiationNumber, setNegotiationNumber] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
+  const [orderCreatedDate, setOrderCreatedDate] = useState('');
   const [observation, setObservation] = useState('');
   const [formItems, setFormItems] = useState<OrderItem[]>([]);
   
@@ -160,6 +161,19 @@ const AdminView: React.FC<AdminViewProps> = ({
     });
     return Array.from(reps).sort();
   }, [orders, customers]);
+
+  const cityUfOptions = useMemo(() => {
+    const citySet = new Set<string>();
+    customers.forEach(c => {
+      const cityValue = safeToUpper(c.city).trim();
+      if (cityValue) citySet.add(cityValue);
+    });
+    orders.forEach(o => {
+      const cityValue = safeToUpper(o.city).trim();
+      if (cityValue) citySet.add(cityValue);
+    });
+    return Array.from(citySet).sort();
+  }, [customers, orders]);
 
   const groupedKits = useMemo(() => {
     const groups: Record<string, Kit & { totalQuantity: number }> = {};
@@ -295,11 +309,49 @@ const AdminView: React.FC<AdminViewProps> = ({
 
   const selectedOrder = useMemo(() => orders.find(o => o.id === selectedOrderId), [orders, selectedOrderId]);
 
+  const dateInputToTimestamp = (dateValue: string, fallback: number) => {
+    const [year, month, day] = dateValue.split('-').map(Number);
+    if (!year || !month || !day) return fallback;
+    const date = new Date(fallback);
+    date.setFullYear(year, month - 1, day);
+    return date.getTime();
+  };
+
+  const normalizeCityUfInput = (value: string) => (
+    safeToUpper(value)
+      .replace(/\s*[/|-]\s*/g, '/')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+
   const handleUpdatePasswords = () => {
     if (!newAdminPassword) return;
     updateConfig({ passwords: { ...passwords, ADMIN: newAdminPassword } });
     setNewAdminPassword('');
     toast.success("Senha administrativa atualizada com sucesso!");
+  };
+
+  const resetOrderForm = () => {
+    setShowForm(false);
+    setEditingOrderId(null);
+    setFormItems([]);
+    setCustomerName('');
+    setNegotiationNumber('');
+    setDeliveryDate('');
+    setOrderCreatedDate('');
+    setCity('');
+    setCustomCarrier('');
+    setCustomRepresentative('');
+    setObservation('');
+    setRequiresInvoice(true);
+  };
+
+  const openNewOrder = () => {
+    resetOrderForm();
+    const today = safeFormatDate(Date.now(), 'iso');
+    setDeliveryDate(today);
+    setOrderCreatedDate(today);
+    setShowForm(true);
   };
 
   const handleSaveOrder = () => {
@@ -316,12 +368,19 @@ const AdminView: React.FC<AdminViewProps> = ({
       return; 
     }
 
+    const existingOrder = editingOrderId ? orders.find(o => o.id === editingOrderId) : undefined;
+    if (editingOrderId && !existingOrder) {
+      toast.error("Pedido não encontrado", { description: "Reabra o pedido e tente salvar novamente." });
+      return;
+    }
+
     const orderToSave: Order = editingOrderId ? {
-      ...(orders.find(o => o.id === editingOrderId) || {} as Order),
+      ...(existingOrder as Order),
       customerName: safeToUpper(customerName),
       city: safeToUpper(city),
       negotiationNumber,
       deliveryDate,
+      createdAt: dateInputToTimestamp(orderCreatedDate, existingOrder?.createdAt || Date.now()),
       carrier: finalCarrier,
       representative: finalRepresentative,
       requiresInvoice,
@@ -340,14 +399,11 @@ const AdminView: React.FC<AdminViewProps> = ({
       observation,
       items: formItems,
       status: OrderStatus.PENDING,
-      createdAt: Date.now()
+      createdAt: dateInputToTimestamp(orderCreatedDate, Date.now())
     };
 
     addOrder(orderToSave);
-    setShowForm(false);
-    setEditingOrderId(null);
-    setFormItems([]); setCustomerName(''); setNegotiationNumber(''); setDeliveryDate(''); setCity('');
-    setCustomCarrier(''); setCustomRepresentative(''); setObservation('');
+    resetOrderForm();
     
     toast.success(editingOrderId ? "Pedido Atualizado!" : "Pedido Cadastrado!", {
       description: (
@@ -460,11 +516,13 @@ const AdminView: React.FC<AdminViewProps> = ({
   };
 
   const openEditOrder = (order: Order) => {
+    setSelectedOrderId(null);
     setEditingOrderId(order.id);
     setCustomerName(order.customerName);
     setCity(order.city);
     setNegotiationNumber(order.negotiationNumber);
     setDeliveryDate(order.deliveryDate);
+    setOrderCreatedDate(safeFormatDate(order.createdAt, 'iso'));
     setObservation(order.observation || '');
     setRequiresInvoice(order.requiresInvoice !== false);
     
@@ -584,7 +642,7 @@ const AdminView: React.FC<AdminViewProps> = ({
                </thead>
                <tbody className="divide-y divide-slate-700/50">
                   {groupedItems(order.items).map((group, idx) => (
-                    <tr key={idx} className="hover:bg-slate-800 transition-colors">
+                    <tr key={idx} className="admin-order-detail-row hover:bg-slate-800 transition-colors">
                       <td className="px-6 py-4">
                          <div className="flex items-center gap-2">
                            {group.type === 'SERVO' ? <Package size={14} className="text-slate-400"/> : group.type === 'KIT' ? <Box size={14} className="text-slate-400"/> : group.type === 'REPAIR' ? <Wrench size={14} className="text-slate-400"/> : <Settings2 size={14} className="text-slate-400"/>}
@@ -705,7 +763,7 @@ const AdminView: React.FC<AdminViewProps> = ({
       />
 
       <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'lg:pl-70' : ''}`}>
-        <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8 pb-12">
+        <div className="w-full p-3 md:p-6 space-y-8 pb-12">
           {/* Header com Navegação Principal e Busca */}
           <div className="flex flex-col lg:flex-row gap-6 items-start lg:items-center justify-between no-print">
             <div className="flex items-center gap-4">
@@ -813,7 +871,7 @@ const AdminView: React.FC<AdminViewProps> = ({
           <div className="space-y-6">
              <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
                 <div className="flex gap-3 w-full md:w-auto">
-                  <button onClick={() => { setShowForm(true); setDeliveryDate(new Date().toISOString().split('T')[0]); }} className="flex-1 md:flex-none bg-slate-900 text-white rounded-xl px-8 py-4 flex items-center justify-center gap-3 hover:bg-slate-700 transition-all shadow-xl active:scale-95 group" aria-label="Novo Pedido">
+                  <button onClick={openNewOrder} className="flex-1 md:flex-none bg-slate-900 text-white rounded-xl px-8 py-4 flex items-center justify-center gap-3 hover:bg-slate-700 transition-all shadow-xl active:scale-95 group" aria-label="Novo Pedido">
                     <Plus size={20} className="group-hover:rotate-90 transition-transform"/> <span className="text-[10px] font-semibold uppercase tracking-widest">Novo Pedido</span>
                   </button>
                 </div>
@@ -1248,11 +1306,11 @@ const AdminView: React.FC<AdminViewProps> = ({
 
        {showForm && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={resetOrderForm} />
           <div className="relative bg-slate-800 w-full max-w-4xl rounded-xl shadow-2xl p-10 space-y-6 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto border border-slate-700">
              <div className="flex justify-between items-center text-white">
                 <h3 className="text-2xl font-semibold uppercase italic tracking-tighter">{editingOrderId ? 'Editar Pedido' : 'Novo Pedido'}</h3>
-                <button onClick={() => { setShowForm(false); setEditingOrderId(null); setFormItems([]); setCustomerName(''); setNegotiationNumber(''); setDeliveryDate(''); setCity(''); setCustomCarrier(''); setCustomRepresentative(''); setObservation(''); }} className="p-2 hover:bg-slate-700 rounded-xl transition-colors" aria-label="Botão"><X /></button>
+                <button onClick={resetOrderForm} className="p-2 hover:bg-slate-700 rounded-xl transition-colors" aria-label="Botão"><X /></button>
              </div>
              
              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1262,29 +1320,41 @@ const AdminView: React.FC<AdminViewProps> = ({
                      {uniqueCustomers.map(c => <option key={c.id} value={c.name} />)}
                    </datalist>
                 </div>
-                <input value={city} onChange={e => setCity(e.target.value)} placeholder="CIDADE..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
+                <div className="relative">
+                  <input list="city-uf-list" value={city} onChange={e => setCity(safeToUpper(e.target.value))} onBlur={e => setCity(normalizeCityUfInput(e.target.value))} placeholder="CIDADE/UF..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
+                  <datalist id="city-uf-list">
+                    {cityUfOptions.map(cityOption => <option key={cityOption} value={cityOption} />)}
+                  </datalist>
+                </div>
                 <input value={negotiationNumber} onChange={e => setNegotiationNumber(e.target.value)} placeholder="NEGOCIAÇÃO..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
-                <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
-                <input value={observation} onChange={e => setObservation(e.target.value)} placeholder="OBSERVAÇÃO DO PEDIDO (OPCIONAL)..." className="col-span-1 md:col-span-2 w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
-                 <div className="flex items-center gap-4 px-5 py-3 bg-slate-900 border border-slate-700 rounded-xl">
-                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Nota Fiscal?</span>
-                    <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
-                       <button type="button" onClick={() => setRequiresInvoice(true)} className={`px-4 py-2 rounded-lg text-[8px] font-semibold uppercase transition-all ${requiresInvoice ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500'}`} aria-label="Sim">Sim</button>
-                       <button type="button" onClick={() => setRequiresInvoice(false)} className={`px-4 py-2 rounded-lg text-[8px] font-semibold uppercase transition-all ${!requiresInvoice ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500'}`} aria-label="Não">Não</button>
-                    </div>
-                 </div>
-                <select value={carrier} onChange={e => setCarrier(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500">
-                  {CARRIERS.map(c => <option key={c} value={c} className="bg-slate-900">{c}</option>)}
-                </select>
-                {carrier === 'OUTROS' && (
-                  <input value={customCarrier} onChange={e => setCustomCarrier(e.target.value)} placeholder="NOME DA TRANSPORTADORA..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500 animate-in slide-in-from-top-2" />
-                )}
                 <select value={representative} onChange={e => setRepresentative(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500">
                   {REPRESENTATIVES.map(r => <option key={r} value={r} className="bg-slate-900">{r}</option>)}
                 </select>
                 {representative === 'OUTROS' && (
                   <input value={customRepresentative} onChange={e => setCustomRepresentative(e.target.value)} placeholder="NOME DO REPRESENTANTE..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500 animate-in slide-in-from-top-2" />
                 )}
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Data de criação</label>
+                  <input type="date" value={orderCreatedDate} onChange={e => setOrderCreatedDate(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest ml-2 mb-1 block">Entrega</label>
+                  <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
+                </div>
+                <select value={carrier} onChange={e => setCarrier(e.target.value)} className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500">
+                  {CARRIERS.map(c => <option key={c} value={c} className="bg-slate-900">{c}</option>)}
+                </select>
+                {carrier === 'OUTROS' && (
+                  <input value={customCarrier} onChange={e => setCustomCarrier(e.target.value)} placeholder="NOME DA TRANSPORTADORA..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500 animate-in slide-in-from-top-2" />
+                )}
+                <div className="flex items-center gap-4 px-5 py-3 bg-slate-900 border border-slate-700 rounded-xl">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Nota Fiscal?</span>
+                  <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+                    <button type="button" onClick={() => setRequiresInvoice(true)} className={`px-4 py-2 rounded-lg text-[8px] font-semibold uppercase transition-all ${requiresInvoice ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500'}`} aria-label="Sim">Sim</button>
+                    <button type="button" onClick={() => setRequiresInvoice(false)} className={`px-4 py-2 rounded-lg text-[8px] font-semibold uppercase transition-all ${!requiresInvoice ? 'bg-slate-700 text-white shadow-md' : 'text-slate-500'}`} aria-label="Não">Não</button>
+                  </div>
+                </div>
+                <input value={observation} onChange={e => setObservation(e.target.value)} placeholder="OBSERVAÇÃO (OPCIONAL)..." className="w-full px-5 py-3 bg-slate-900 text-white border border-slate-700 rounded-xl font-semibold text-sm uppercase outline-none focus:ring-2 ring-slate-500" />
              </div>
 
              <div className="bg-slate-900/50 p-6 rounded-xl border border-slate-700">
