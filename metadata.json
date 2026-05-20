@@ -1,0 +1,7 @@
+{
+  "name": "Safisa App",
+  "description": "A comprehensive logistics and production management app for clutch servo assembly and order tracking. Features distinct workflows for Administrative, Assembly, and Expedition roles.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

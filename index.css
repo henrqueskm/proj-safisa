@@ -1,0 +1,220 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0f172a;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: contain;
+  overflow-x: hidden;
+  width: 100vw;
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+}
+
+button {
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* LIGHT THEME OVERRIDES */
+body.theme-light {
+  background-color: #fafaf9; /* warm natural background */
+  --color-slate-950: #f5f5f4;
+  --color-slate-900: #fafaf9;
+  --color-slate-800: #ffffff;
+  --color-slate-700: #e7e5e4;
+  --color-slate-600: #d6d3d1;
+  --color-slate-500: #A8A29E;
+  --color-slate-400: #78716c;
+  --color-slate-300: #57534e;
+  --color-slate-200: #44403c;
+  --color-slate-100: #292524;
+  --color-slate-50: #1c1917;
+}
+
+body.theme-light .text-white:not(
+  button.bg-emerald-600, button.bg-emerald-600 *,
+  .bg-emerald-500 *, .bg-emerald-500,
+  .bg-emerald-600 *, .bg-emerald-600,
+  .bg-red-500 *, .bg-red-500,
+  .bg-orange-500 *, .bg-orange-500,
+  .bg-amber-500 *, .bg-amber-500,
+  .bg-blue-600 *, .bg-blue-600,
+  .bg-black *, .bg-black
+) {
+  color: #1c1917 !important;
+}
+
+body.theme-light button[class*="hover:bg-slate-"]:hover,
+body.theme-light button[class*="hover:bg-slate-"]:hover * {
+  background-color: #e7e5e4 !important;
+  color: #1c1917 !important;
+}
+
+body.theme-light button[class*="hover:bg-emerald-"]:hover,
+body.theme-light button[class*="hover:bg-emerald-"]:hover *,
+body.theme-light button[class*="hover:bg-red-"]:hover,
+body.theme-light button[class*="hover:bg-red-"]:hover * {
+  color: #ffffff !important;
+}
+
+body.theme-light .text-slate-400 { color: #78716c !important; }
+body.theme-light .text-slate-300 { color: #57534e !important; }
+
+body.theme-light .border-white:not(
+  button.bg-slate-700, button.bg-slate-700 *,
+  .border-white[class*="bg-slate-"]
+) {
+  border-color: #1c1917 !important;
+}
+
+body.theme-light .text-slate-200 { color: #44403c !important; }
+body.theme-light .text-slate-300 { color: #57534e !important; }
+body.theme-light .text-emerald-400 { color: #059669 !important; }
+body.theme-light .text-blue-400 { color: #2563eb !important; }
+body.theme-light .text-slate-400 { color: #78716c !important; }
+body.theme-light .text-amber-400 { color: #d97706 !important; }
+body.theme-light .text-red-400 { color: #dc2626 !important; }
+
+/* Invert bg-white/10 to bg-black/5 for contrast */
+body.theme-light .bg-white\/10 {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+body.theme-light .bg-white\/20,
+body.theme-light *:hover > .hover\:bg-white\/20,
+body.theme-light .hover\:bg-white\/20:hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Modals overlays should remain dark */
+body.theme-light .bg-slate-900\/60,
+body.theme-light .bg-slate-950\/60,
+body.theme-light .bg-slate-950\/80 {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* Tabelas: linhas de divisão prestas e mais contrastantes no tema claro */
+body.theme-light table,
+body.theme-light table th,
+body.theme-light table td,
+body.theme-light table tr,
+body.theme-light table thead,
+body.theme-light table tbody,
+body.theme-light .divide-slate-700\/50 > :not([hidden]) ~ :not([hidden]),
+body.theme-light .divide-slate-800\/50 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Otimização de Scrollbars (Dark Mode) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155; /* slate-700 */
+  border-radius: 10px;
+  border: 2px solid #0f172a; /* slate-900 border to fake padding */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569; /* slate-600 */
+}
+
+/* Estilos de Impressão */
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  body { background: white !important; padding: 0 !important; margin: 0 !important; }
+  
+  /* Padrão para a Planilha de Montagem: A4 Paisagem */
+  @page { 
+    size: A4 landscape; 
+    margin: 0.5cm; 
+  }
+
+  main {
+    max-width: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Quando imprimindo etiquetas, tenta ajustar o conteúdo */
+  .label-to-print {
+    width: 100mm;
+    height: 100mm;
+    page-break-after: always;
+    display: flex !important;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 8mm;
+    box-sizing: border-box;
+    border: none;
+    margin: 0 auto;
+    background: white;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Garante que o conteúdo da etiqueta ocupe o espaço corretamente */
+  .label-to-print * {
+    color: black !important;
+    border-color: black !important;
+  }
+
+  /* Estilos para a Planilha de Montagem na Impressão */
+  .print-table-container {
+    background: white !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-table {
+    width: 100% !important;
+    border: 1px solid black !important;
+    color: black !important;
+    background: white !important;
+  }
+  
+  .print-table th, 
+  .print-table td {
+    border: 1px solid black !important;
+    color: black !important;
+    background: white !important;
+  }
+
+  .print-table * {
+    color: black !important;
+    border-color: black !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /* Remove fundos coloridos e garante contraste */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+.print-only { display: none; }
+input, select, textarea { font-size: 16px !important; }

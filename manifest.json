@@ -1,0 +1,26 @@
+
+{
+  "short_name": "Safisa Prod",
+  "name": "Safisa Industrial - Gestão de Produção",
+  "description": "Sistema de Gestão Industrial Safisa",
+  "id": "/safisa-prod",
+  "icons": [
+    {
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#4338ca",
+  "background_color": "#f8fafc",
+  "orientation": "portrait"
+}
