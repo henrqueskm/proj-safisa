@@ -2,13 +2,13 @@ import { safeFormatDate, safeToUpper } from '../lib/utils';
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Order, OrderStatus, AssembledUnit, Customer, OrderItem, OrderItemType, ServoOrientation, KitImage, Kit, KitData, ServoModelData, AuditLog } from '../types';
-import { SERVO_BASE_MODELS, SERVO_KITS, REPAIR_MODELS, REPRESENTATIVES, CARRIERS, STATUS_COLORS, STATUS_LABELS, getMissingItemsCount, normalizeModelName, normalizeKitName, isOrderFullySeparated, getStatusLabel, getStatusColor } from '../constants';
+import { SERVO_BASE_MODELS, SERVO_KITS, REPAIR_MODELS, REPRESENTATIVES, CARRIERS, STATUS_COLORS, STATUS_LABELS, getMissingItemsCount, isOrderFullySeparated, getStatusLabel, getStatusColor } from '../constants';
 import { Sidebar } from './Sidebar';
-import { 
-  Plus, Trash2, Search, X, MapPin, Calendar, Layers, LayoutDashboard, 
-  Users, Warehouse, History, Settings, RefreshCcw, UserCircle, 
+import {
+  Plus, Trash2, Search, X, MapPin, Calendar, Layers, LayoutDashboard,
+  Users, History, Settings, UserCircle,
   AlertTriangle, Box, Image as ImageIcon, Trash, Package, Wrench, Settings2,
-  FileText, Truck, CheckCircle2, TrendingUp, Filter, Eye, EyeOff, Pencil, Minus, Bell, Loader2, Camera, Barcode, ShieldCheck,
+  FileText, Truck, CheckCircle2, TrendingUp, Filter, Eye, EyeOff, Pencil, Minus, Bell, Loader2, Camera, Barcode,
   Menu
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,7 +49,7 @@ const AdminView: React.FC<AdminViewProps> = ({
 }) => {
   const { loadCompletedOrders, setLoadCompletedOrders } = useAppContext();
   
-  const [activeTab, setActiveTab] = useState<'orders' | 'customers' | 'inventory' | 'history' | 'system' | 'audit'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'customers' | 'history' | 'audit'>('orders');
   
   useEffect(() => {
     if (activeTab === 'history' && setLoadCompletedOrders && !loadCompletedOrders) {
@@ -58,7 +58,6 @@ const AdminView: React.FC<AdminViewProps> = ({
   }, [activeTab, loadCompletedOrders, setLoadCompletedOrders]);
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [inventorySubTab, setInventorySubTab] = useState<'servos' | 'kits'>('servos');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'ALL' | 'PLANNED_TODAY'>('ALL');
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -92,7 +91,6 @@ const AdminView: React.FC<AdminViewProps> = ({
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [editingInvoiceOrderId, setEditingInvoiceOrderId] = useState<string | null>(null);
   const [editingInvoiceValue, setEditingInvoiceValue] = useState<string>('');
-  const [newAdminPassword, setNewAdminPassword] = useState('');
   const [selectedRepresentative, setSelectedRepresentative] = useState<string | 'ALL'>('ALL');
   const [historyDate, setHistoryDate] = useState<string>(
     new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
@@ -129,13 +127,12 @@ const AdminView: React.FC<AdminViewProps> = ({
       awaitingInvoice: orders.filter(o => o.status === OrderStatus.AWAITING_INVOICE).length,
       awaitingExpedition: orders.filter(o => o.status === OrderStatus.AWAITING_EXPEDITION).length,
       awaitingReady: orders.filter(o => o.status === OrderStatus.READY).length,
-      plannedToday: orders.filter(o => o.isSelectedForToday && (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION)).length,
-      stockTotal: assembledUnits.filter(u => !u.isAssigned).length,
+      plannedToday: orders.filter(o => o.isSelectedForToday && o.status !== OrderStatus.COMPLETED).length,
       newToday: orders.filter(o => o.status !== OrderStatus.COMPLETED && safeFormatDate(o.createdAt, 'iso') === today).length,
       dispatchedToday: orders.filter(o => o.status === OrderStatus.COMPLETED && o.dispatchedAt && safeFormatDate(o.dispatchedAt, 'iso') === today).length,
       anomalous: orders.filter(o => !o.status || !Object.values(OrderStatus).includes(o.status as any)).length
     };
-  }, [orders, assembledUnits]);
+  }, [orders]);
 
   // Deduplicated Unique Customers
   const uniqueCustomers = useMemo(() => {
@@ -175,22 +172,6 @@ const AdminView: React.FC<AdminViewProps> = ({
     return Array.from(citySet).sort();
   }, [customers, orders]);
 
-  const groupedKits = useMemo(() => {
-    const groups: Record<string, Kit & { totalQuantity: number }> = {};
-    kits.forEach(k => {
-      if (k.quantity <= 0) return;
-      const normalizedName = normalizeKitName(k.name);
-      const normalizedModel = normalizeModelName(k.model);
-      const key = `${normalizedModel}-${normalizedName}`;
-      if (!groups[key]) {
-        groups[key] = { ...k, model: normalizedModel, name: normalizedName, totalQuantity: k.quantity };
-      } else {
-        groups[key].totalQuantity += k.quantity;
-      }
-    });
-    return Object.values(groups).sort((a, b) => a.model.localeCompare(b.model) || a.name.localeCompare(b.name));
-  }, [kits]);
-
   const filteredOrders = useMemo(() => 
     orders.filter(o => {
       const matchesSearch = 
@@ -203,7 +184,7 @@ const AdminView: React.FC<AdminViewProps> = ({
         (o.items || []).some((i: any) => safeToUpper(i.guaranteeNumber).includes(query));
       
       if (statusFilter === 'PLANNED_TODAY') {
-        return o.isSelectedForToday && (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION) && matchesSearch;
+        return o.isSelectedForToday && o.status !== OrderStatus.COMPLETED && matchesSearch;
       }
       if ((statusFilter as string) === 'ANOMALOUS') {
         return (!o.status || !Object.values(OrderStatus).includes(o.status as any)) && matchesSearch;
@@ -281,18 +262,6 @@ const AdminView: React.FC<AdminViewProps> = ({
     });
   }, [uniqueCustomers, query, orders]);
 
-  const groupedInventory = useMemo(() => {
-    const groups: Record<string, { model: string; orientation: string; units: AssembledUnit[] }> = {};
-    assembledUnits.filter(u => !u.isAssigned).forEach(u => {
-      const ori = u.orientation || 'NORMAL';
-      const normModel = normalizeModelName(u.model);
-      const key = `${normModel}-${ori}`;
-      if (!groups[key]) groups[key] = { model: normModel, orientation: ori, units: [] };
-      groups[key].units.push(u);
-    });
-    return Object.values(groups).sort((a, b) => a.model.localeCompare(b.model));
-  }, [assembledUnits]);
-
   const groupedItems = (items: OrderItem[]) => {
     if (!items) return [];
     const groups: Record<string, { model: string; kit: string; type: OrderItemType; orientation: string; count: number; items: OrderItem[] }> = {};
@@ -323,13 +292,6 @@ const AdminView: React.FC<AdminViewProps> = ({
       .replace(/\s+/g, ' ')
       .trim()
   );
-
-  const handleUpdatePasswords = () => {
-    if (!newAdminPassword) return;
-    updateConfig({ passwords: { ...passwords, ADMIN: newAdminPassword } });
-    setNewAdminPassword('');
-    toast.success("Senha administrativa atualizada com sucesso!");
-  };
 
   const resetOrderForm = () => {
     setShowForm(false);
@@ -751,9 +713,7 @@ const AdminView: React.FC<AdminViewProps> = ({
         tabs={[
           { id: 'orders', label: 'Pedidos', icon: <LayoutDashboard size={18}/> },
           { id: 'customers', label: 'Clientes', icon: <Users size={18}/> },
-          { id: 'inventory', label: 'Estoque', icon: <Warehouse size={18}/> },
-          { id: 'history', label: 'Histórico', icon: <History size={18}/> },
-          { id: 'system', label: 'Segurança', icon: <ShieldCheck size={18}/> }
+          { id: 'history', label: 'Histórico', icon: <History size={18}/> }
         ]}
         activeTab={activeTab}
         onTabChange={(id) => {
@@ -798,10 +758,10 @@ const AdminView: React.FC<AdminViewProps> = ({
         <div className="space-y-6 animate-in fade-in duration-500">
           {/* Dashboard de Indicadores - Bento Style */}
           {!isCompactMode && (
-            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-5 xl:gap-6">
                  <div 
                     onClick={() => { setActiveTab('orders'); setStatusFilter('ALL'); }}
-                    className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-white transition-all relative overflow-hidden cursor-pointer active:scale-95"
+                    className="bg-slate-800 p-7 min-h-[150px] rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-white transition-all relative overflow-hidden cursor-pointer active:scale-95"
                  >
                     <div className="absolute top-0 right-0 w-20 h-20 bg-slate-700 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
                     <div className="w-10 h-10 bg-slate-700 rounded-lg flex items-center justify-center text-white mb-4 relative z-10"><TrendingUp size={18}/></div>
@@ -812,7 +772,7 @@ const AdminView: React.FC<AdminViewProps> = ({
                  </div>
                  <div 
                     onClick={() => { setActiveTab('orders'); setStatusFilter('PLANNED_TODAY'); }}
-                    className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-blue-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
+                    className="bg-slate-800 p-7 min-h-[150px] rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-blue-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
                  >
                     <div className="absolute top-0 right-0 w-20 h-20 bg-blue-900/20 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
                     <div className="w-10 h-10 bg-blue-900/20 rounded-lg flex items-center justify-center text-blue-500 mb-4 relative z-10"><Calendar size={18}/></div>
@@ -823,7 +783,7 @@ const AdminView: React.FC<AdminViewProps> = ({
                  </div>
                  <div 
                    onClick={() => { setActiveTab('orders'); setStatusFilter(OrderStatus.AWAITING_INVOICE); }}
-                     className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-orange-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
+                     className="bg-slate-800 p-7 min-h-[150px] rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-orange-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
                   >
                      <div className="absolute top-0 right-0 w-20 h-20 bg-orange-900/20 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
                      <div className="w-10 h-10 bg-orange-900/20 rounded-lg flex items-center justify-center text-orange-500 mb-4 relative z-10"><FileText size={18}/></div>
@@ -834,7 +794,7 @@ const AdminView: React.FC<AdminViewProps> = ({
                   </div>
                   <div 
                     onClick={() => { setActiveTab('orders'); setStatusFilter(OrderStatus.READY); }}
-                    className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-emerald-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
+                    className="bg-slate-800 p-7 min-h-[150px] rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-emerald-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
                   >
                     <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-900/20 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
                     <div className="w-10 h-10 bg-emerald-900/20 rounded-lg flex items-center justify-center text-emerald-500 mb-4 relative z-10"><Package size={18}/></div>
@@ -843,20 +803,9 @@ const AdminView: React.FC<AdminViewProps> = ({
                        <span className="block text-2xl font-semibold text-white tracking-tighter">{metrics.awaitingReady}</span>
                     </div>
                   </div>
-                  <div 
-                     onClick={() => setActiveTab('inventory')}
-                     className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-indigo-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
-                  >
-                     <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-900/20 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
-                     <div className="w-10 h-10 bg-indigo-900/20 rounded-lg flex items-center justify-center text-indigo-500 mb-4 relative z-10"><Box size={18}/></div>
-                     <div className="relative z-10">
-                        <span className="block text-xs font-semibold text-slate-400 uppercase tracking-[0.2em] mb-1">Estoque Servos</span>
-                        <span className="block text-2xl font-semibold text-white tracking-tighter">{metrics.stockTotal}</span>
-                     </div>
-                  </div>
                  <div 
                     onClick={() => setActiveTab('history')}
-                    className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-violet-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
+                    className="bg-slate-800 p-7 min-h-[150px] rounded-xl border border-slate-700 shadow-sm flex flex-col justify-between group hover:border-violet-400 transition-all relative overflow-hidden cursor-pointer active:scale-95"
                  >
                     <div className="absolute top-0 right-0 w-20 h-20 bg-violet-900/20 rounded-full -mr-10 -mt-10 opacity-50 group-hover:scale-150 transition-transform duration-700" />
                     <div className="w-10 h-10 bg-violet-900/20 rounded-lg flex items-center justify-center text-violet-400 mb-4 relative z-10"><Truck size={18}/></div>
@@ -1100,105 +1049,6 @@ const AdminView: React.FC<AdminViewProps> = ({
          </div>
       )}
 
-      {activeTab === 'inventory' && (
-        <div className="space-y-6">
-          <div className="flex gap-2">
-            <button onClick={() => setInventorySubTab('servos')} className={`px-6 py-3 rounded-xl font-semibold uppercase text-[10px] tracking-widest transition-all ${inventorySubTab === 'servos' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:text-white'}`} aria-label="Servos em Estoque">Servos em Estoque</button>
-            <button onClick={() => setInventorySubTab('kits')} className={`px-6 py-3 rounded-xl font-semibold uppercase text-[10px] tracking-widest transition-all ${inventorySubTab === 'kits' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-800 text-slate-400 hover:text-white'}`} aria-label="Kits em Estoque">Kits em Estoque</button>
-          </div>
-          
-          {inventorySubTab === 'servos' && (
-             <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                        <th className="p-4">Modelo</th>
-                        <th className="p-4">Orientação</th>
-                        <th className="p-4 text-center">Quantidade</th>
-                        <th className="p-4 w-[50%]">Números de Garantia</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/50">
-                      {groupedInventory.map((group, idx) => (
-                        <tr key={idx} className="hover:bg-slate-700/50 transition-colors">
-                          <td className="p-4 font-semibold text-white whitespace-nowrap">{group.model}</td>
-                          <td className="p-4 whitespace-nowrap">
-                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-900/50 border border-slate-700 px-2 py-0.5 rounded-md uppercase">{group.orientation}</span>
-                          </td>
-                          <td className="p-4 text-center">
-                            <span className="text-sm font-semibold text-white bg-slate-900 px-3 py-1 rounded-md shadow-inner">{group.units.length}</span>
-                          </td>
-                          <td className="p-4">
-                            <div className="flex flex-wrap gap-1.5 overflow-y-auto max-h-[80px] custom-scrollbar">
-                              {group.units.sort((a,b) => parseInt(a.guaranteeNumber) - parseInt(b.guaranteeNumber)).map(unit => (
-                                <span key={unit.id} className="font-mono text-[10px] font-semibold px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded-md text-slate-400 hover:text-white transition-colors cursor-default">A{unit.guaranteeNumber}</span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {groupedInventory.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="py-20 text-center opacity-40">
-                             <Warehouse size={48} className="mx-auto mb-4 text-slate-500" />
-                             <p className="text-sm font-semibold">Estoque de Servos Vazio</p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-             </div>
-          )}
-
-          {inventorySubTab === 'kits' && (
-             <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-slate-900/80 backdrop-blur-md border-b border-slate-700 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                        <th className="p-4">Lente</th>
-                        <th className="p-4">Kit</th>
-                        <th className="p-4">Modelo</th>
-                        <th className="p-4 text-center">Quantidade</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/50">
-                      {groupedKits.map(kit => (
-                        <tr key={`${kit.model}-${kit.name}`} className="hover:bg-slate-700/50 transition-colors">
-                          <td className="p-4">
-                            <button 
-                              onClick={() => setViewingKitImage(kit.name.replace('Kit ', ''))}
-                              className="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all flex items-center justify-center shadow-sm"
-                              title="Ver Foto de Referência"
-                             aria-label="Ver Foto de Referência">
-                              <Eye size={16} />
-                            </button>
-                          </td>
-                          <td className="p-4 font-semibold text-white whitespace-nowrap">{kit.name}</td>
-                          <td className="p-4 text-slate-300 text-sm whitespace-nowrap">{kit.model}</td>
-                          <td className="p-4 text-center">
-                            <span className="text-sm font-semibold text-white bg-slate-900 px-4 py-1.5 rounded-md shadow-inner">{kit.totalQuantity}</span>
-                          </td>
-                        </tr>
-                      ))}
-                      {groupedKits.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="py-20 text-center opacity-40">
-                             <Box size={48} className="mx-auto mb-4 text-slate-500" />
-                             <p className="text-sm font-semibold">Nenhum Kit em Estoque</p>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-             </div>
-          )}
-        </div>
-      )}
-
        {activeTab === 'history' && (
           <div className="space-y-6">
              <div className="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm">
@@ -1283,25 +1133,6 @@ const AdminView: React.FC<AdminViewProps> = ({
               {renderOrderDetail(selectedOrder)}
            </div>
          </div>
-       )}
-
-       {activeTab === 'system' && (
-        <div className="space-y-8 animate-in fade-in duration-500">
-           <div className="max-w-xl mx-auto">
-              <div className="bg-slate-800 p-10 rounded-xl border border-slate-700 shadow-xl space-y-8">
-                 <div className="space-y-2">
-                     <h3 className="text-sm font-semibold text-white uppercase tracking-widest flex items-center gap-2">
-                       <ShieldCheck size={18} className="text-slate-400" /> Segurança
-                     </h3>
-                     <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest block">Senha Administrativa</label>
-                     <div className="flex gap-4">
-                       <input type="password" value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} placeholder="Nova senha..." className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-xl font-semibold text-sm outline-none focus:ring-2 ring-slate-500 placeholder:text-slate-600" />
-                       <button onClick={handleUpdatePasswords} className="p-4 bg-slate-900 text-white rounded-xl hover:bg-slate-700 transition-all shadow-lg active:scale-95" aria-label="Atualizar"><RefreshCcw size={20}/></button>
-                     </div>
-                 </div>
-              </div>
-           </div>
-        </div>
        )}
 
        {showForm && (

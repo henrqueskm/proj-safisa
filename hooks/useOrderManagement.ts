@@ -5,6 +5,8 @@ import { normalizeModelName, normalizeKitName } from '../constants';
 import { generateId, safeToUpper } from '../lib/utils';
 import { toast } from 'sonner';
 
+const getGuaranteeLookupKey = (value: unknown) => safeToUpper(String(value ?? '').trim()).replace(/^A/, '');
+
 export const cleanData = (obj: any): any => {
   if (obj === null || obj === undefined) return null;
   try {
@@ -100,7 +102,7 @@ export function useOrderManagement(
       if (order && order.items) {
         (order.items || []).forEach((item: any) => {
           if (item.guaranteeNumber) {
-            assignedGuarantees.add(String(item.guaranteeNumber));
+            assignedGuarantees.add(getGuaranteeLookupKey(item.guaranteeNumber));
           }
         });
       }
@@ -108,7 +110,7 @@ export function useOrderManagement(
 
     const updates: Promise<any>[] = [];
     assembledUnits.forEach(unit => {
-      const shouldBeAssigned = assignedGuarantees.has(String(unit.guaranteeNumber));
+      const shouldBeAssigned = assignedGuarantees.has(getGuaranteeLookupKey(unit.guaranteeNumber));
       if (unit.isAssigned !== shouldBeAssigned) {
          updates.push(supabase.from('assembledunits').update({ data: cleanData({ ...unit, isAssigned: shouldBeAssigned }) }).eq('id', unit.id).then() as Promise<any>);
       }
@@ -156,7 +158,7 @@ export function useOrderManagement(
       const unitUpdates = (order.items || [])
         .filter(item => item.guaranteeNumber)
         .map(item => {
-          const unit = assembledUnits.find(u => String(u.guaranteeNumber) === String(item.guaranteeNumber));
+          const unit = assembledUnits.find(u => getGuaranteeLookupKey(u.guaranteeNumber) === getGuaranteeLookupKey(item.guaranteeNumber));
           if (unit) return supabase.from('assembledunits').update({ data: cleanData({ ...unit, isAssigned: false }) }).eq('id', unit.id).then() as Promise<any>;
           return null;
         })
@@ -174,10 +176,10 @@ export function useOrderManagement(
     const unit = assembledUnits.find(u => u.id === id);
     if (unit) {
       if (unit.isAssigned) {
-        const order = orders.find((o: any) => (o.items || []).some((i: any) => String(i.guaranteeNumber) === String(unit.guaranteeNumber)));
+        const order = orders.find((o: any) => (o.items || []).some((i: any) => getGuaranteeLookupKey(i.guaranteeNumber) === getGuaranteeLookupKey(unit.guaranteeNumber)));
         if (order) {
           const updatedItems = (order.items || []).map(i => 
-            String(i.guaranteeNumber) === String(unit.guaranteeNumber) ? { ...i, guaranteeNumber: null } : i
+            getGuaranteeLookupKey(i.guaranteeNumber) === getGuaranteeLookupKey(unit.guaranteeNumber) ? { ...i, guaranteeNumber: null } : i
           );
           await supabase.from('orders').update({ data: cleanData({ ...order, items: updatedItems }) }).eq('id', order.id);
         }
@@ -208,11 +210,11 @@ export function useOrderManagement(
       const currentItem = (order.items || []).find(i => i.id === a.itemId);
       const currentGuarantee = currentItem?.guaranteeNumber;
       if (currentGuarantee && currentGuarantee !== a.guaranteeNumber) {
-        const oldUnit = assembledUnits.find(u => String(u.guaranteeNumber) === String(currentGuarantee));
+        const oldUnit = assembledUnits.find(u => getGuaranteeLookupKey(u.guaranteeNumber) === getGuaranteeLookupKey(currentGuarantee));
         if (oldUnit) await supabase.from('assembledunits').update({ data: cleanData({ ...oldUnit, isAssigned: false }) }).eq('id', oldUnit.id);
       }
       if (a.guaranteeNumber) {
-        const newUnit = assembledUnits.find(u => String(u.guaranteeNumber) === String(a.guaranteeNumber));
+        const newUnit = assembledUnits.find(u => getGuaranteeLookupKey(u.guaranteeNumber) === getGuaranteeLookupKey(a.guaranteeNumber));
         if (newUnit) await supabase.from('assembledunits').update({ data: cleanData({ ...newUnit, isAssigned: true }) }).eq('id', newUnit.id);
       }
     }

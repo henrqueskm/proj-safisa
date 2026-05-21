@@ -53,6 +53,8 @@ interface SystemSettingsModalProps {
   onImportBackup?: (file: File) => Promise<void>;
   globalAssemblers?: string[];
   globalRepresentatives?: string[];
+  currentSequence: number;
+  setSequence: (v: number) => Promise<void> | void;
 }
 
 const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
@@ -78,9 +80,11 @@ const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   onImportBackup,
   globalAssemblers = [],
   globalRepresentatives = [],
+  currentSequence,
+  setSequence,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    "maintenance" | "logo" | "endpoints" | "barcodes_no_kit" | "barcodes_kit" | "kit_images" | "users" | "personnel" | "audit_logs"
+    "maintenance" | "sequence" | "logo" | "endpoints" | "barcodes_no_kit" | "barcodes_kit" | "kit_images" | "users" | "personnel" | "audit_logs"
   >("maintenance");
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
 
@@ -148,6 +152,9 @@ const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
            <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-1 px-3">
              <button onClick={() => setActiveTab('maintenance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all ${activeTab === 'maintenance' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`} aria-label="Manutenção & Backup">
                <RefreshCcw size={16}/> Manutenção & Backup
+             </button>
+             <button onClick={() => setActiveTab('sequence')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all ${activeTab === 'sequence' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`} aria-label="Sequência">
+               <Barcode size={16}/> Sequência
              </button>
              <button onClick={() => setActiveTab('logo')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all ${activeTab === 'logo' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'}`} aria-label="Logo Safisa">
                <ImageIcon size={16}/> Logo Safisa
@@ -259,6 +266,47 @@ const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
               </div>
             </div>
           </div>
+          )}
+
+          {activeTab === "sequence" && (
+            <div className="max-w-2xl mx-auto animate-in fade-in duration-300">
+              <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-6">Sequência de Produção</h2>
+              <div className="bg-slate-800 p-10 rounded-xl border border-slate-700 shadow-xl space-y-8">
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-widest flex items-center gap-2">
+                    <Barcode size={18} className="text-slate-400" /> Garantias
+                  </h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
+                    Ajuste o último número de garantia usado. O próximo lote de produção iniciará em A{Number(currentSequence || 0) + 1}.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-2">Última garantia usada</label>
+                    <div className="flex gap-4">
+                      <input
+                        type="number"
+                        value={currentSequence}
+                        onChange={e => {
+                          const nextValue = Number(e.target.value);
+                          if (Number.isFinite(nextValue)) setSequence(nextValue);
+                        }}
+                        className="flex-1 px-6 py-4 bg-slate-900 border border-slate-700 text-white rounded-xl font-bold text-xl outline-none focus:ring-2 ring-slate-500"
+                      />
+                      <div className="p-4 bg-slate-900 border border-slate-700 text-slate-400 rounded-xl flex items-center justify-center">
+                        <Barcode size={20}/>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-5">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
+                      Atenção: alterar este número afeta diretamente a próxima sequência registrada na Montagem. Use apenas para corrigir numeração.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
             
           {activeTab === "logo" && (

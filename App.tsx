@@ -20,6 +20,8 @@ import { useFirebaseData } from './hooks/useFirebaseData';
 import { useOrderManagement, cleanData } from './hooks/useOrderManagement';
 import { AppProvider } from './hooks/useAppContext';
 
+const getGuaranteeLookupKey = (value: unknown) => safeToUpper(String(value ?? '').trim()).replace(/^A/, '');
+
 const App: React.FC = () => {
   const [muteSound, setMuteSound] = useState(false);
   
@@ -225,6 +227,54 @@ const App: React.FC = () => {
     const { data } = await supabase.from("config").select("data").eq("id", "global").single();
     const currentData = data?.data || {};
     await supabase.from("config").update({ data: { ...currentData, currentSequence: Number(v) } }).eq("id", "global");
+  };
+
+  const returnServoToStock = async (data: { guaranteeNumber: string; model?: string; orientation?: any; assembler?: string }) => {
+    if (!loggedInUser) {
+      toast.error("Ação Bloqueada", { description: "Você precisa estar logado para retornar séries ao estoque." });
+      return;
+    }
+
+    const guaranteeKey = getGuaranteeLookupKey(data.guaranteeNumber);
+    if (!guaranteeKey) return;
+
+    const linkedOrder = orders.find(order =>
+      (order.items || []).some(item => getGuaranteeLookupKey(item.guaranteeNumber) === guaranteeKey)
+    );
+
+    if (linkedOrder) {
+      const updatedItems = (linkedOrder.items || []).map(item =>
+        getGuaranteeLookupKey(item.guaranteeNumber) === guaranteeKey
+          ? { ...item, guaranteeNumber: undefined }
+          : item
+      );
+
+      await supabase.from("orders").update({
+        data: cleanData({ ...linkedOrder, items: updatedItems })
+      }).eq("id", linkedOrder.id);
+    }
+
+    const existingUnit = assembledUnits.find(unit => getGuaranteeLookupKey(unit.guaranteeNumber) === guaranteeKey);
+    if (existingUnit) {
+      await supabase.from("assembledunits").update({
+        data: cleanData({ ...existingUnit, isAssigned: false })
+      }).eq("id", existingUnit.id);
+      return;
+    }
+
+    const unitId = generateId();
+    await supabase.from("assembledunits").upsert({
+      id: unitId,
+      data: cleanData({
+        id: unitId,
+        model: data.model || "RETORNO",
+        orientation: data.orientation || "NORMAL",
+        guaranteeNumber: guaranteeKey,
+        assembler: data.assembler || "RETORNO",
+        assemblyDate: new Date().toISOString(),
+        isAssigned: false
+      })
+    });
   };
 
   const appContextValue = {
@@ -600,8 +650,13 @@ const App: React.FC = () => {
                 toast.error("Ação Bloqueada", { description: "Você precisa estar logado para atualizar unidades." });
                 return;
               }
-              await supabase.from("assembledunits").update({ data: cleanData(d) }).eq("id", id);
-            }} onDeleteUnit={deleteUnit} currentSequence={currentSequence} setSequence={setSequence} onToggleOrderToday={async (id, val) => {
+              const currentUnit = assembledUnits.find(u => u.id === id);
+              if (!currentUnit) {
+                toast.error("Série não encontrada", { description: "Atualize a tela e tente novamente." });
+                return;
+              }
+              await supabase.from("assembledunits").update({ data: cleanData({ ...currentUnit, ...d }) }).eq("id", id);
+            }} currentSequence={currentSequence} onToggleOrderToday={async (id, val) => {
               if (!loggedInUser) {
                 toast.error("Ação Bloqueada", { description: "Você precisa estar logado para alterar o planejamento." });
                 return;
@@ -610,7 +665,7 @@ const App: React.FC = () => {
               if (orderToUpdate) {
                 await supabase.from("orders").update({ data: cleanData({ ...orderToUpdate, isSelectedForToday: val }) }).eq("id", id);
               }
-            }} onToggleGroupKit={onToggleGroupKit} onAdjustKitStock={onAdjustKitStock} passwords={passwords} updateConfig={updateConfig} />}
+            }} onToggleGroupKit={onToggleGroupKit} onReturnToStock={returnServoToStock} onAdjustKitStock={onAdjustKitStock} passwords={passwords} updateConfig={updateConfig} />}
             {activeRole === UserRole.EXPEDITION && <ExpeditionView orders={orders} availableUnits={assembledUnits.filter(u => !u.isAssigned)} kits={kits} kitData={kitData} servoModelData={servoModelData} kitImages={kitImages} safisaIcon={safisaIcon} onAssignBatch={onAssignBatch} onDeleteKitGroup={deleteKitGroup} onUpdateStatus={async (id, s, ex) => {
               const orderToUpdate = orders.find(o => o.id === id);
               if (orderToUpdate) {
@@ -760,6 +815,8 @@ const App: React.FC = () => {
           onImportBackup={handleImportBackup}
           globalAssemblers={globalAssemblers}
           globalRepresentatives={globalRepresentatives}
+          currentSequence={currentSequence}
+          setSequence={setSequence}
         />
       )}
       </div>

@@ -1,11 +1,12 @@
 import { safeFormatDate, safeToUpper } from '../lib/utils';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { AssembledUnit, Order, OrderStatus, ServoOrientation, Kit } from '../types';
 import { SERVO_BASE_MODELS, getMissingItemsCount, ORIENTATION_LABELS, ORIENTATION_FULL_NAMES, normalizeModelName } from '../constants';
 import { Sidebar } from './Sidebar';
-import { Layers, CheckSquare, Square, Plus, ClipboardList, Box, Search, History, User, Calendar, Printer, X, Pencil, Settings, Bell, Trash2, FileSpreadsheet, Upload, Package, Eye, EyeOff, Menu } from 'lucide-react';
+import { Layers, CheckSquare, Square, Plus, ClipboardList, Box, Search, History, User, Calendar, Printer, X, Pencil, Settings, Bell, FileSpreadsheet, Upload, Package, Eye, EyeOff, Menu, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAppContext } from '../hooks/useAppContext';
 
 interface AssemblyViewProps {
   units: AssembledUnit[];
@@ -14,11 +15,10 @@ interface AssemblyViewProps {
   manualQuantities: Record<string, Record<string, string>>;
   onAddBatch: (units: AssembledUnit[]) => void;
   onUpdateUnit: (id: string, data: Partial<AssembledUnit>) => void;
-  onDeleteUnit: (id: string) => void;
   currentSequence: number;
-  setSequence: (v: number) => void;
-  onToggleOrderToday: (id: string, val: boolean) => void;
+  onToggleOrderToday: (id: string, val: boolean) => void | Promise<void>;
   onToggleGroupKit: (id: string, itemIds: string[]) => void;
+  onReturnToStock: (data: { guaranteeNumber: string; model?: string; orientation?: ServoOrientation; assembler?: string }) => Promise<void> | void;
   passwords: Record<string, string>;
   updateConfig: (d: any) => void;
   assemblers: string[];
@@ -47,8 +47,91 @@ const FIXED_SPREADSHEET_SEQUENCE = [
   "SAF-040|NORMAL"
 ];
 
-const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manualQuantities, onAddBatch, onUpdateUnit, onDeleteUnit, currentSequence, setSequence, onToggleOrderToday, onToggleGroupKit, passwords, updateConfig, assemblers }) => {
-  const [activeTab, setActiveTab] = useState<'planning' | 'production' | 'history' | 'sequence' | 'spreadsheet'>('production');
+const escapePrintHtml = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+const getDateFilterValue = (dateVal: unknown) => {
+  if (!dateVal) return '';
+
+  if (typeof dateVal === 'string') {
+    const value = dateVal.trim();
+    const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnlyMatch) return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}`;
+
+    const brDateMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (brDateMatch) return `${brDateMatch[3]}-${brDateMatch[2]}-${brDateMatch[1]}`;
+  }
+
+  return safeFormatDate(dateVal, 'iso');
+};
+
+const getGuaranteeLookupKey = (value: unknown) => safeToUpper(String(value ?? '').trim()).replace(/^A/, '');
+
+const printCleanHtml = (title: string, body: string, pageSize: 'portrait' | 'landscape' = 'landscape') => {
+  const frame = document.createElement('iframe');
+  frame.style.position = 'fixed';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.width = '0';
+  frame.style.height = '0';
+  frame.style.border = '0';
+  frame.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(frame);
+
+  const printWindow = frame.contentWindow;
+  const doc = printWindow?.document;
+  if (!printWindow || !doc) {
+    frame.remove();
+    return false;
+  }
+
+  doc.open();
+  doc.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapePrintHtml(title)}</title>
+        <style>
+          @page { size: A4 ${pageSize}; margin: 10mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; font-size: 11px; }
+          header { border-bottom: 2px solid #000; margin-bottom: 12px; padding-bottom: 8px; }
+          h1 { margin: 0 0 4px; font-size: 18px; text-transform: uppercase; font-style: italic; letter-spacing: .02em; }
+          .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+          table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          th, td { border: 1px solid #000; padding: 6px; text-align: center; vertical-align: middle; }
+          th { background: #e5e5e5; font-weight: 800; text-transform: uppercase; }
+          td { font-weight: 700; }
+          .left { text-align: left; }
+          .muted { color: #555; font-size: 10px; font-weight: 600; }
+          .section-row td { background: #f1f1f1; text-align: left; font-weight: 900; text-transform: uppercase; }
+          .empty { padding: 28px; text-align: center; font-weight: 800; text-transform: uppercase; color: #555; }
+        </style>
+      </head>
+      <body>${body}</body>
+    </html>
+  `);
+  doc.close();
+
+  window.setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+    window.setTimeout(() => frame.remove(), 1000);
+  }, 150);
+
+  return true;
+};
+
+const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manualQuantities, onAddBatch, onUpdateUnit, currentSequence, onToggleOrderToday, onToggleGroupKit, onReturnToStock, passwords, updateConfig, assemblers }) => {
+  const { loadCompletedOrders, setLoadCompletedOrders } = useAppContext();
+  const [activeTab, setActiveTab] = useState<'planning' | 'production' | 'history' | 'returns' | 'spreadsheet'>('production');
   const [showForm, setShowForm] = useState(false);
   const [editingUnit, setEditingUnit] = useState<AssembledUnit | null>(null);
   const [isStockProduction, setIsStockProduction] = useState(false);
@@ -57,10 +140,39 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
   const [assembler, setAssembler] = useState('');
   const [quantity, setQuantity] = useState<number | string>(1);
   const [searchHistory, setSearchHistory] = useState('');
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const deferredSearchHistory = useDeferredValue(searchHistory);
+  const [reportDate, setReportDate] = useState(safeFormatDate(Date.now(), 'iso'));
   const [showTabs, setShowTabs] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showQueueByOrder, setShowQueueByOrder] = useState(false);
+  const [planningOverrides, setPlanningOverrides] = useState<Record<string, boolean>>({});
+  const [returnSerial, setReturnSerial] = useState('');
+  const [returnModel, setReturnModel] = useState(SERVO_BASE_MODELS[0]);
+  const [returnOrientation, setReturnOrientation] = useState<ServoOrientation>('NORMAL');
+  const [returnAssembler, setReturnAssembler] = useState('');
+  const [isReturningToStock, setIsReturningToStock] = useState(false);
+
+  useEffect(() => {
+    if ((activeTab === 'history' || activeTab === 'returns') && setLoadCompletedOrders && !loadCompletedOrders) {
+      setLoadCompletedOrders(true);
+    }
+  }, [activeTab, loadCompletedOrders, setLoadCompletedOrders]);
+
+  useEffect(() => {
+    setPlanningOverrides(current => {
+      let changed = false;
+      const next = { ...current };
+
+      orders.forEach(order => {
+        if (next[order.id] !== undefined && !!order.isSelectedForToday === next[order.id]) {
+          delete next[order.id];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [orders]);
 
   React.useEffect(() => {
     let needsUpdate = false;
@@ -90,8 +202,28 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
     updateConfig({ manualQuantities: updated });
   };
 
-  const selectedOrders = useMemo(() => orders.filter(o => (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION) && o.isSelectedForToday), [orders]);
-  const pendingOrders = useMemo(() => orders.filter(o => (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION) && !o.isSelectedForToday), [orders]);
+  const planningOrders = useMemo(() => {
+    return orders.map(order => {
+      const override = planningOverrides[order.id];
+      return override === undefined ? order : { ...order, isSelectedForToday: override };
+    });
+  }, [orders, planningOverrides]);
+
+  const selectedOrders = useMemo(() => planningOrders.filter(o => (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION) && o.isSelectedForToday), [planningOrders]);
+  const pendingOrders = useMemo(() => planningOrders.filter(o => (o.status === OrderStatus.PENDING || o.status === OrderStatus.AWAITING_EXPEDITION) && !o.isSelectedForToday), [planningOrders]);
+
+  const handleToggleOrderToday = (id: string, val: boolean) => {
+    setPlanningOverrides(current => ({ ...current, [id]: val }));
+
+    Promise.resolve(onToggleOrderToday(id, val)).catch(() => {
+      setPlanningOverrides(current => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      toast.error("Nao foi possivel atualizar o planejamento.");
+    });
+  };
 
   const productionQueue = useMemo(() => {
     const queue: Record<string, { model: string; orientation: ServoOrientation; needed: number; assembled: number; linked: number }> = {};
@@ -148,19 +280,95 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
   }, [selectedOrders]);
 
   const filteredHistory = useMemo(() => {
-    const q = safeToUpper(searchHistory);
+    const q = safeToUpper(deferredSearchHistory);
     return units
       .filter(u => {
         const matchesQuery = u.guaranteeNumber.includes(q) || 
                              safeToUpper(u.model).includes(q) || 
                              safeToUpper(u.assembler).includes(q);
-        const matchesDate = u.assemblyDate.startsWith(reportDate);
+        const matchesDate = getDateFilterValue(u.assemblyDate) === reportDate;
         
         // Se houver busca, ignora o filtro de data para encontrar o número em qualquer dia
         return q ? matchesQuery : matchesDate;
       })
       .sort((a, b) => parseInt(b.guaranteeNumber) - parseInt(a.guaranteeNumber));
-  }, [units, searchHistory, reportDate]);
+  }, [units, deferredSearchHistory, reportDate]);
+
+  const guaranteeCustomerMap = useMemo(() => {
+    const map = new Map<string, string>();
+
+    orders.forEach(order => {
+      (order.items || []).forEach(item => {
+        if (!item.guaranteeNumber) return;
+        const key = getGuaranteeLookupKey(item.guaranteeNumber);
+        if (key && !map.has(key)) {
+          map.set(key, order.customerName);
+        }
+      });
+    });
+
+    return map;
+  }, [orders]);
+
+  const getGuaranteeCustomerName = (guaranteeNumber: string) =>
+    guaranteeCustomerMap.get(getGuaranteeLookupKey(guaranteeNumber)) || '';
+
+  const returnLookup = useMemo(() => {
+    const key = getGuaranteeLookupKey(returnSerial);
+    if (!key) return null;
+
+    const unit = units.find(u => getGuaranteeLookupKey(u.guaranteeNumber) === key) || null;
+    let linkedOrder: Order | null = null;
+    let linkedItem: any = null;
+
+    for (const order of orders) {
+      const item = (order.items || []).find(i => getGuaranteeLookupKey(i.guaranteeNumber) === key);
+      if (item) {
+        linkedOrder = order;
+        linkedItem = item;
+        break;
+      }
+    }
+
+    return { key, unit, linkedOrder, linkedItem };
+  }, [returnSerial, units, orders]);
+
+  const handleReturnToStock = async () => {
+    const guaranteeNumber = getGuaranteeLookupKey(returnSerial);
+    if (!guaranteeNumber) {
+      toast.error("Informe o numero de garantia.");
+      return;
+    }
+
+    if (!returnLookup?.unit && !returnAssembler) {
+      toast.error("Informe o montador/responsavel para cadastrar a garantia no estoque.");
+      return;
+    }
+
+    const customerName = returnLookup?.linkedOrder?.customerName;
+    const message = customerName
+      ? `Retornar a serie A${guaranteeNumber} ao estoque e desvincular do pedido de ${customerName}?`
+      : `Retornar a serie A${guaranteeNumber} ao estoque?`;
+
+    if (!window.confirm(message)) return;
+
+    try {
+      setIsReturningToStock(true);
+      await onReturnToStock({
+        guaranteeNumber,
+        model: returnLookup?.unit?.model || returnModel,
+        orientation: returnLookup?.unit?.orientation || returnOrientation,
+        assembler: returnLookup?.unit?.assembler || returnAssembler
+      });
+      toast.success(`Serie A${guaranteeNumber} retornada ao estoque.`);
+      setReturnSerial('');
+      setReturnAssembler('');
+    } catch {
+      toast.error("Nao foi possivel retornar a serie ao estoque.");
+    } finally {
+      setIsReturningToStock(false);
+    }
+  };
 
   const handleOpenForm = (m?: string, o?: ServoOrientation) => {
     if (m && o) {
@@ -206,8 +414,197 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
     };
   }, [orders, units]);
 
-  const printContent = () => {
-    window.print();
+  const todayAssemblyUnits = useMemo(
+    () => units.filter(u => getDateFilterValue(u.assemblyDate) === getDateFilterValue(Date.now())),
+    [units]
+  );
+
+  const renderPrintHeader = (title: string, leftMeta: string, rightMeta: string) => `
+    <header>
+      <h1>${escapePrintHtml(title)}</h1>
+      <div class="meta">
+        <span>${escapePrintHtml(leftMeta)}</span>
+        <span>${escapePrintHtml(rightMeta)}</span>
+      </div>
+    </header>
+  `;
+
+  const handlePrintProductionQueue = () => {
+    const issueDate = safeFormatDate(Date.now());
+    const title = showQueueByOrder ? 'SAFISA - FILA DE PRODUCAO POR PEDIDO' : 'SAFISA - FILA DE PRODUCAO DIARIA';
+    const header = renderPrintHeader(title, `Data de emissao: ${issueDate}`, `Total de pedidos: ${selectedOrders.length}`);
+
+    const table = showQueueByOrder
+      ? `
+        <table>
+          <thead>
+            <tr>
+              <th>Pedido</th>
+              <th>Modelo de Servo</th>
+              <th>Orientacao</th>
+              <th>Necess.</th>
+              <th>OK ( )</th>
+              <th>Anotacoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productionQueueByOrder.length === 0 ? `
+              <tr><td class="empty" colspan="6">Nenhum servo pendente por pedido</td></tr>
+            ` : productionQueueByOrder.map(({ order, items, totalNeeded }) => `
+              <tr class="section-row">
+                <td colspan="6">${escapePrintHtml(order.customerName)} - ${escapePrintHtml(safeFormatDate(order.createdAt) || 'Sem data')} - Total: ${totalNeeded}</td>
+              </tr>
+              ${items.map(item => `
+                <tr>
+                  <td class="left">${escapePrintHtml(order.customerName)}</td>
+                  <td class="left">${escapePrintHtml(item.model)}</td>
+                  <td>${escapePrintHtml(ORIENTATION_FULL_NAMES[item.orientation])}</td>
+                  <td>${item.quantity}</td>
+                  <td>[ &nbsp; ]</td>
+                  <td></td>
+                </tr>
+              `).join('')}
+            `).join('')}
+          </tbody>
+        </table>
+      `
+      : `
+        <table>
+          <thead>
+            <tr>
+              <th>Modelo de Servo</th>
+              <th>Orientacao</th>
+              <th>Necess.</th>
+              <th>Montado</th>
+              <th>OK ( )</th>
+              <th>Anotacoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productionQueue.filter(([_, stats]) => stats.needed > 0).length === 0 ? `
+              <tr><td class="empty" colspan="6">Sem demanda programada</td></tr>
+            ` : productionQueue.filter(([_, stats]) => stats.needed > 0).map(([key, stats]) => `
+              <tr>
+                <td class="left">
+                  ${escapePrintHtml(stats.model)}
+                  ${stats.linked > 0 ? `<div class="muted">${stats.linked} ja vinculado(s)</div>` : ''}
+                </td>
+                <td>${escapePrintHtml(ORIENTATION_FULL_NAMES[stats.orientation])}</td>
+                <td>${stats.needed}</td>
+                <td>${stats.assembled}</td>
+                <td>[ &nbsp; ]</td>
+                <td></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+    if (!printCleanHtml(title, `${header}${table}`, 'landscape')) {
+      toast.error('Nao foi possivel abrir a impressao.');
+    }
+  };
+
+  const handlePrintAssemblyHistory = (items = filteredHistory, title = 'RELATORIO DE PRODUCAO SAFISA', meta?: string) => {
+    const label = meta || (searchHistory ? `Busca: ${safeToUpper(searchHistory)} (todas as datas)` : `Data: ${reportDate ? safeFormatDate(reportDate + 'T00:00:00') : ''}`);
+    const header = renderPrintHeader(title, label, `Total: ${items.length} unidades`);
+    const table = `
+      <table>
+        <thead>
+          <tr>
+            <th>Garantia</th>
+            <th>Data</th>
+            <th>Modelo</th>
+            <th>Orientacao</th>
+            <th>Montador</th>
+            <th>Cliente</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.length === 0 ? `
+            <tr><td class="empty" colspan="6">Nenhum registro nesta data / filtro</td></tr>
+          ` : items.map(u => `
+            <tr>
+              <td>A${escapePrintHtml(u.guaranteeNumber)}</td>
+              <td>${escapePrintHtml(safeFormatDate(u.assemblyDate))}</td>
+              <td class="left">${escapePrintHtml(u.model)}</td>
+              <td>${escapePrintHtml(ORIENTATION_FULL_NAMES[u.orientation || 'NORMAL'])}</td>
+              <td>${escapePrintHtml(u.assembler)}</td>
+              <td class="left">${escapePrintHtml(getGuaranteeCustomerName(u.guaranteeNumber))}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    if (!printCleanHtml(title, `${header}${table}`, 'portrait')) {
+      toast.error('Nao foi possivel abrir a impressao.');
+    }
+  };
+
+  const handlePrintTodayAssembly = () => {
+    const sortedToday = [...todayAssemblyUnits].sort((a,b) => parseInt(b.guaranteeNumber) - parseInt(a.guaranteeNumber));
+    handlePrintAssemblyHistory(sortedToday, 'SAFISA - MONTAGENS DE HOJE', `Data: ${safeFormatDate(Date.now())}`);
+  };
+
+  const handlePrintSpreadsheet = () => {
+    const title = 'SAFISA - PLANILHA DE PRODUCAO';
+    const header = renderPrintHeader(title, `Data de emissao: ${safeFormatDate(Date.now())}`, `Total geral: ${spreadsheetTable.grandTotal}`);
+    const fields = [
+      ['semimontados', 'Semimont.'],
+      ['corpos', 'Corpos'],
+      ['zinco', 'Zinco'],
+      ['usinagem', 'Usinagem'],
+      ['matPrima', 'Mat.Prima']
+    ];
+    const table = `
+      <table>
+        <thead>
+          <tr>
+            <th>Modelo</th>
+            <th>Orientacao</th>
+            <th>Total</th>
+            ${spreadsheetTable.headers.map(header => `<th>${escapePrintHtml(header.name)}</th>`).join('')}
+            <th>Estoque</th>
+            ${fields.map(([_, label]) => `<th>${escapePrintHtml(label)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${spreadsheetTable.rows.map(row => {
+            const rowKey = `${row.model}|${row.orientation}`;
+            return `
+              <tr>
+                <td class="left">${escapePrintHtml(row.model.replace(/\s*\([^)]*\)\s*/g, ''))}</td>
+                <td>${escapePrintHtml(ORIENTATION_FULL_NAMES[row.orientation])}</td>
+                <td>${row.total || ''}</td>
+                ${row.orderQuantities.map(qty => `<td>${qty || ''}</td>`).join('')}
+                <td>${row.stockCount || ''}</td>
+                ${fields.map(([field]) => `<td>${escapePrintHtml(manualQuantities[rowKey]?.[field] || '')}</td>`).join('')}
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th class="left" colspan="2">Total Geral</th>
+            <th>${spreadsheetTable.grandTotal || ''}</th>
+            ${spreadsheetTable.columnTotals.map(total => `<th>${total || ''}</th>`).join('')}
+            <th>${spreadsheetTable.totalStock || ''}</th>
+            ${fields.map(([field]) => {
+              const total = spreadsheetTable.rows.reduce((sum, row) => {
+                const val = manualQuantities[`${row.model}|${row.orientation}`]?.[field];
+                return sum + (parseInt(val) || 0);
+              }, 0);
+              return `<th>${total || ''}</th>`;
+            }).join('')}
+          </tr>
+        </tfoot>
+      </table>
+    `;
+
+    if (!printCleanHtml(title, `${header}${table}`, 'landscape')) {
+      toast.error('Nao foi possivel abrir a impressao.');
+    }
   };
 
   return (
@@ -234,8 +631,8 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
         tabs={[
           { id: 'production', label: 'Produção', icon: <Layers size={18} /> },
           { id: 'planning', label: 'Planejamento', icon: <ClipboardList size={18} /> },
-          { id: 'sequence', label: 'Sequência', icon: <Box size={18} /> },
           { id: 'history', label: 'Histórico', icon: <History size={18} /> },
+          { id: 'returns', label: 'Retorno', icon: <RotateCcw size={18} /> },
           { id: 'spreadsheet', label: 'Planilha', icon: <FileSpreadsheet size={18} /> }
         ]}
         activeTab={activeTab}
@@ -260,15 +657,18 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                   [
                     { id: 'production', label: 'Produção' },
                     { id: 'planning', label: 'Planejamento' },
-                    { id: 'sequence', label: 'Sequência' },
                     { id: 'history', label: 'Histórico' },
+                    { id: 'returns', label: 'Retorno' },
                     { id: 'spreadsheet', label: 'Planilha' }
                   ].find(t => t.id === activeTab)?.label
                 }
               </h2>
             </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => window.print()} className="p-3 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-xl transition-all" title="Imprimir" aria-label="Imprimir"><Printer size={18}/></button>
+            <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 shadow-inner">
+              <div className="flex flex-col items-end leading-none">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Proxima serie</span>
+                <span className="font-mono text-2xl font-black text-white italic tracking-tight">A{currentSequence + 1}</span>
+              </div>
             </div>
           </div>
 
@@ -282,7 +682,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                  <table className="w-full text-left border-collapse">
                    <tbody className="divide-y divide-slate-700/50">
                      {selectedOrders.map(o => (
-                       <tr key={o.id} onClick={() => onToggleOrderToday(o.id, false)} className="hover:bg-slate-700/50 cursor-pointer transition-colors group">
+                       <tr key={o.id} onClick={() => handleToggleOrderToday(o.id, false)} className="hover:bg-slate-700/50 cursor-pointer transition-colors group">
                           <td className="p-4 w-full">
                             <div className="flex justify-between items-center">
                               <div>
@@ -315,7 +715,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                  <table className="w-full text-left border-collapse opacity-70 hover:opacity-100 transition-opacity">
                    <tbody className="divide-y divide-slate-700/50">
                      {pendingOrders.map(o => (
-                       <tr key={o.id} onClick={() => onToggleOrderToday(o.id, true)} className="hover:bg-slate-700/50 cursor-pointer transition-colors">
+                       <tr key={o.id} onClick={() => handleToggleOrderToday(o.id, true)} className="hover:bg-slate-700/50 cursor-pointer transition-colors">
                           <td className="p-4 w-full">
                              <div className="flex justify-between items-center">
                                <div>
@@ -371,7 +771,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                        {showQueueByOrder ? <EyeOff size={14} /> : <Eye size={14} />}
                        {showQueueByOrder ? 'Geral' : 'Pedidos'}
                      </button>
-                     <button onClick={printContent} title="Imprimir Fila de Produção" className="p-2 bg-white rounded-xl border hover:bg-slate-50 transition-colors" aria-label="Imprimir Fila de Produção"><Printer size={16}/></button>
+                     <button onClick={handlePrintProductionQueue} title="Imprimir Fila de Produção" className="p-2 bg-white rounded-xl border hover:bg-slate-50 transition-colors" aria-label="Imprimir Fila de Produção"><Printer size={16}/></button>
                    </div>
                 </div>
                 {showQueueByOrder ? (
@@ -460,7 +860,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                                 )}
                               </td>
                               <td className="p-3 text-right">
-                                <button 
+                                <button
                                   onClick={() => handleOpenForm(stats.model, stats.orientation)}
                                   className="p-2 bg-slate-900 border border-slate-700 text-slate-400 rounded-lg hover:text-white hover:border-slate-500 transition-all"
                                  aria-label="Botão">
@@ -514,7 +914,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
               <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm no-print">
                 <div className="bg-slate-900 px-8 py-5 border-b border-slate-700 font-semibold text-[10px] text-slate-400 uppercase tracking-widest flex items-center justify-between">
                   <div className="flex items-center gap-2"><Box size={14} /> Montagens Hoje</div>
-                  <button onClick={printContent} className="text-slate-400 hover:text-white transition-colors" aria-label="Imprimir"><Printer size={16}/></button>
+                  <button onClick={handlePrintTodayAssembly} className="text-slate-400 hover:text-white transition-colors" aria-label="Imprimir"><Printer size={16}/></button>
                 </div>
                 <div className="max-h-[600px] overflow-y-auto">
                   <table className="w-full text-left border-collapse">
@@ -527,7 +927,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/50">
-                      {units.filter(u => u.assemblyDate.startsWith(new Date().toISOString().split('T')[0])).sort((a,b) => parseInt(b.guaranteeNumber) - parseInt(a.guaranteeNumber)).map(u => (
+                      {[...todayAssemblyUnits].sort((a,b) => parseInt(b.guaranteeNumber) - parseInt(a.guaranteeNumber)).map(u => (
                         <tr key={u.id} className="hover:bg-slate-900 transition-colors group">
                            <td className="px-8 py-4">
                               <span className="font-mono font-semibold text-white text-base italic tracking-tighter">A{u.guaranteeNumber}</span>
@@ -543,51 +943,19 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                            </td>
                            <td className="px-4 py-4 text-right">
                               <div className="flex items-center justify-end gap-1">
-                                {u.isAssigned ? (
-                                  <>
-                                    <button 
-                                      onClick={() => {
-                                        if (window.confirm(`Este número de série está VINCULADO a um pedido. Deseja realmente excluir a série A${u.guaranteeNumber} e desvinculá-la do pedido?`)) {
-                                          onDeleteUnit(u.id);
-                                          toast.success(`Série A${u.guaranteeNumber} excluída e desvinculada.`);
-                                        }
-                                      }}
-                                      className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                      title="Excluir Número de Série Vinculado"
-                                     aria-label="Excluir Número de Série Vinculado">
-                                      <Trash2 size={14} />
-                                    </button>
-                                    <div className="w-2 h-2 rounded-full bg-slate-700 ml-1"></div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button 
-                                      onClick={() => setEditingUnit(u)}
-                                      className="p-2 text-slate-300 hover:text-slate-100 hover:bg-slate-700 rounded-lg transition-all"
-                                      title="Editar Modelo/Orientação"
-                                     aria-label="Editar Modelo/Orientação">
-                                      <Pencil size={14} />
-                                    </button>
-                                    <button 
-                                      onClick={() => {
-                                        if (window.confirm(`Deseja realmente excluir o número de série A${u.guaranteeNumber}?`)) {
-                                          onDeleteUnit(u.id);
-                                          toast.success(`Série A${u.guaranteeNumber} excluída.`);
-                                        }
-                                      }}
-                                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                      title="Excluir Número de Série"
-                                     aria-label="Excluir Número de Série">
-                                      <Trash2 size={14} />
-                                    </button>
-                                    <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-1"></div>
-                                  </>
-                                )}
+                                <button
+                                  onClick={() => setEditingUnit(u)}
+                                  className="p-2 text-slate-300 hover:text-slate-100 hover:bg-slate-700 rounded-lg transition-all"
+                                  title="Editar Modelo/Orientação"
+                                 aria-label="Editar Modelo/Orientação">
+                                  <Pencil size={14} />
+                                </button>
+                                <div className={`w-2 h-2 rounded-full ml-1 ${u.isAssigned ? 'bg-slate-700' : 'bg-emerald-400 animate-pulse'}`}></div>
                               </div>
                            </td>
                         </tr>
                       ))}
-                      {units.filter(u => u.assemblyDate.startsWith(new Date().toISOString().split('T')[0])).length === 0 && (
+                      {todayAssemblyUnits.length === 0 && (
                         <tr>
                           <td colSpan={4} className="p-20 text-center opacity-20">
                             <Layers size={40} className="mx-auto mb-2 text-slate-500" />
@@ -757,34 +1125,6 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
         </div>
       )}
 
-      {activeTab === 'sequence' && (
-        <div className="max-w-md mx-auto bg-slate-800 p-10 rounded-xl border border-slate-700 shadow-xl space-y-8 animate-in fade-in duration-500">
-           <div className="text-center space-y-2">
-              <h3 className="text-xl font-bold uppercase italic tracking-tighter text-white">Gerenciar Sequência</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ajuste o próximo número de série</p>
-           </div>
-           <div className="space-y-4">
-              <div className="space-y-1">
-                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block ml-2">Próxima Garantia</label>
-                 <div className="flex gap-4">
-                    <input 
-                      type="number" 
-                      value={currentSequence} 
-                      onChange={e => setSequence(parseInt(e.target.value))} 
-                      className="flex-1 px-6 py-4 bg-slate-700 text-white rounded-xl font-bold text-xl outline-none focus:ring-2 ring-slate-500" 
-                    />
-                    <div className="p-4 bg-slate-700 text-slate-400 rounded-xl flex items-center justify-center">
-                       <Layers size={20}/>
-                    </div>
-                 </div>
-              </div>
-              <p className="text-[9px] font-bold text-slate-400 uppercase text-center px-4">
-                Atenção: Alterar este número afetará o próximo lote de produção registrado.
-              </p>
-           </div>
-        </div>
-      )}
-
       {activeTab === 'history' && (
         <div className="space-y-4 animate-in fade-in duration-500">
            {/* Filtros e Cabeçalho do Relatório */}
@@ -809,7 +1149,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                     className="bg-slate-700 text-white border-none outline-none font-black text-xs uppercase px-3 py-1.5 rounded-xl focus:ring-1 ring-slate-500"
                   />
                 </div>
-                <button onClick={printContent} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-slate-700 transition-all shadow-md" aria-label="Imprimir">
+                <button onClick={() => handlePrintAssemblyHistory()} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-slate-700 transition-all shadow-md" aria-label="Imprimir">
                    <Printer size={14} /> Imprimir
                 </button>
               </div>
@@ -833,7 +1173,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                     <th>MODELO</th>
                     <th>ORIENTAÇÃO</th>
                     <th>MONTADOR</th>
-                    <th>STATUS</th>
+                    <th>CLIENTE</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -843,7 +1183,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                       <td>{u.model}</td>
                       <td>{ORIENTATION_FULL_NAMES[u.orientation || 'NORMAL']}</td>
                       <td>{u.assembler}</td>
-                      <td>{u.isAssigned ? 'Vinculado' : 'Em Estoque'}</td>
+                      <td>{getGuaranteeCustomerName(u.guaranteeNumber)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -877,29 +1217,12 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                    </div>
                    <div className="flex items-center gap-4">
                       <div className="flex items-center gap-1">
-                        {!u.isAssigned && (
-                          <button 
-                            onClick={() => setEditingUnit(u)}
-                            className="p-2 text-slate-500 hover:text-slate-200 hover:bg-slate-700 rounded-xl transition-all"
-                            title="Editar Modelo/Orientação"
-                           aria-label="Editar Modelo/Orientação">
-                            <Pencil size={14} />
-                          </button>
-                        )}
                         <button 
-                          onClick={() => {
-                            const msg = u.isAssigned 
-                              ? `Este número de série está VINCULADO a um pedido. Deseja realmente excluir a série A${u.guaranteeNumber} e desvinculá-la do pedido?`
-                              : `Deseja realmente excluir o número de série A${u.guaranteeNumber}?`;
-                            if (window.confirm(msg)) {
-                              onDeleteUnit(u.id);
-                              toast.success(`Série A${u.guaranteeNumber} excluída.`);
-                            }
-                          }}
-                          className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-900/30 rounded-xl transition-all"
-                          title="Excluir Número de Série"
-                         aria-label="Excluir Número de Série">
-                          <Trash2 size={14} />
+                          onClick={() => setEditingUnit(u)}
+                          className="p-2 text-slate-500 hover:text-slate-200 hover:bg-slate-700 rounded-xl transition-all"
+                          title="Editar Modelo/Orientação"
+                         aria-label="Editar Modelo/Orientação">
+                          <Pencil size={14} />
                         </button>
                       </div>
                       <div className="text-right">
@@ -922,6 +1245,115 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
            </div>
         </div>
       )}
+      {activeTab === 'returns' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-sm overflow-hidden">
+            <div className="bg-slate-900 px-8 py-5 border-b border-slate-700 flex items-center gap-3">
+              <RotateCcw size={18} className="text-slate-400" />
+              <div>
+                <h3 className="text-lg font-black text-white uppercase italic tracking-tighter">Retorno ao Estoque</h3>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Desvincula a garantia do pedido e deixa a serie disponivel em estoque.</p>
+              </div>
+            </div>
+
+            <div className="p-6 md:p-8 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Numero de garantia</label>
+                  <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-slate-500">
+                    <Search size={18} className="text-slate-500" />
+                    <input
+                      value={returnSerial}
+                      onChange={e => setReturnSerial(e.target.value)}
+                      placeholder="DIGITE A61001 OU 61001"
+                      className="flex-1 bg-transparent outline-none border-none text-white font-mono font-black text-lg uppercase placeholder:text-slate-600"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleReturnToStock}
+                  disabled={isReturningToStock || !getGuaranteeLookupKey(returnSerial)}
+                  className="h-[52px] px-6 bg-slate-900 text-white rounded-xl border border-slate-700 font-black uppercase text-[10px] tracking-widest hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  <RotateCcw size={14} />
+                  {isReturningToStock ? 'Retornando...' : 'Retornar ao Estoque'}
+                </button>
+              </div>
+
+              {returnLookup && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-2">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Garantia</span>
+                    <p className="font-mono text-2xl font-black text-white italic">A{returnLookup.key}</p>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">
+                      {returnLookup.unit ? 'Registro encontrado na montagem' : 'Sem registro na montagem'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-2">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Vinculo atual</span>
+                    <p className="text-sm font-black text-white uppercase">
+                      {returnLookup.linkedOrder?.customerName || 'Sem pedido vinculado'}
+                    </p>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">
+                      {returnLookup.linkedOrder ? `${returnLookup.linkedOrder.city || 'Sem cidade'} | ${safeFormatDate(returnLookup.linkedOrder.createdAt)}` : 'A serie sera mantida/cadastrada em estoque'}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-2">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Destino</span>
+                    <p className="text-sm font-black text-emerald-400 uppercase">Estoque disponivel</p>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">
+                      {returnLookup.unit?.isAssigned ? 'Sera marcado como nao vinculado' : 'Ja consta como livre ou sera criado'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {returnLookup && !returnLookup.unit && (
+                <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-6 space-y-4">
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase italic">Cadastrar garantia retornada</h4>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Esse numero nao existe no estoque. Informe os dados para criar o registro.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Modelo</label>
+                      <select value={returnModel} onChange={e => setReturnModel(e.target.value)} className="w-full px-4 py-3 border border-slate-700 bg-slate-800 text-white rounded-xl font-bold text-xs uppercase outline-none">
+                        {SERVO_BASE_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Orientacao</label>
+                      <select value={returnOrientation} onChange={e => setReturnOrientation(e.target.value as ServoOrientation)} className="w-full px-4 py-3 border border-slate-700 bg-slate-800 text-white rounded-xl font-bold text-xs uppercase outline-none">
+                        {Object.entries(ORIENTATION_FULL_NAMES).map(([key, value]) => (
+                          <option key={key} value={key}>{value}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Responsavel</label>
+                      <select value={returnAssembler} onChange={e => setReturnAssembler(e.target.value)} className="w-full px-4 py-3 border border-slate-700 bg-slate-800 text-white rounded-xl font-bold text-xs uppercase outline-none">
+                        <option value="">ESCOLHER...</option>
+                        {assemblers.map(a => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!returnLookup && (
+                <div className="py-16 text-center border-2 border-dashed border-slate-700 rounded-xl opacity-50">
+                  <Package size={42} className="mx-auto mb-3 text-slate-500" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Informe uma garantia para consultar o retorno</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {activeTab === 'spreadsheet' && (
         <div className="space-y-8 animate-in fade-in duration-500">
           <div className="bg-slate-800 p-10 rounded-xl border border-slate-700 shadow-xl space-y-8 print:bg-transparent print:border-none print:p-0 print:shadow-none">
@@ -935,7 +1367,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                 </p>
               </div>
               
-              <button onClick={printContent} className="flex items-center gap-3 px-8 py-4 bg-slate-700 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest shadow-lg hover:bg-slate-600 transition-all active:scale-95" aria-label="Imprimir Planilha">
+              <button onClick={handlePrintSpreadsheet} className="flex items-center gap-3 px-8 py-4 bg-slate-700 text-white rounded-xl font-bold uppercase text-[10px] tracking-widest shadow-lg hover:bg-slate-600 transition-all active:scale-95" aria-label="Imprimir Planilha">
                 <Printer size={18} /> Imprimir Planilha
               </button>
             </div>
