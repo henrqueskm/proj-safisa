@@ -758,13 +758,13 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
 
               <div className="pt-4 space-y-4">
                 <div className="flex justify-between items-center gap-3 ml-2">
-                   <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                   <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">
                      {showQueueByOrder ? 'Fila por Pedido' : 'Fila de Produção'}
                    </h3>
                    <div className="flex items-center gap-2">
                      <button
                        onClick={() => setShowQueueByOrder(value => !value)}
-                       className="px-3 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-[9px] font-bold uppercase tracking-widest flex items-center gap-1.5"
+                       className="px-3 py-2 bg-slate-800 border border-slate-700 text-slate-300 rounded-xl hover:bg-slate-700 hover:text-white transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5"
                        aria-label={showQueueByOrder ? 'Mostrar fila geral' : 'Expandir fila por pedido'}
                        title={showQueueByOrder ? 'Mostrar fila geral' : 'Expandir fila por pedido'}
                      >
@@ -778,7 +778,7 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                   productionQueueByOrder.length === 0 ? (
                     <div className="p-10 border border-dashed border-slate-700 rounded-xl text-center opacity-40">
                        <ClipboardList size={32} className="mx-auto mb-2 text-slate-500" />
-                       <p className="text-[10px] font-semibold uppercase text-slate-500">Nenhum servo pendente por pedido</p>
+                       <p className="text-xs font-semibold uppercase text-slate-500">Nenhum servo pendente por pedido</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -787,13 +787,13 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                           <div className="px-4 py-3 bg-slate-900 border-b border-slate-700">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <h4 className="text-xs font-bold text-white uppercase truncate">{order.customerName}</h4>
-                                <div className="flex flex-wrap items-center gap-2 mt-1 text-[9px] font-semibold uppercase text-slate-500">
+                                <h4 className="text-sm font-bold text-white uppercase truncate">{order.customerName}</h4>
+                                <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] font-semibold uppercase text-slate-400">
                                   <span>{safeFormatDate(order.createdAt) || 'Sem data'}</span>
                                   <span>{order.carrier || 'Sem transportadora'}</span>
                                 </div>
                               </div>
-                              <span className="shrink-0 bg-slate-700 text-white px-2.5 py-1 rounded-lg text-[10px] font-black">
+                              <span className="shrink-0 bg-slate-700 text-white px-3 py-1.5 rounded-lg text-xs font-black">
                                 {totalNeeded}
                               </span>
                             </div>
@@ -802,11 +802,11 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                             {items.map(item => (
                               <div key={`${order.id}-${item.model}-${item.orientation}`} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-700/30 transition-colors">
                                 <div className="min-w-0">
-                                  <span className="block text-xs font-semibold text-white uppercase truncate">{item.model}</span>
-                                  <span className="block text-[9px] text-slate-500 font-medium uppercase">{ORIENTATION_LABELS[item.orientation]}</span>
+                                  <span className="block text-sm font-bold text-white uppercase truncate">{item.model}</span>
+                                  <span className="block text-[11px] text-slate-400 font-semibold uppercase">{ORIENTATION_LABELS[item.orientation]}</span>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <span className="text-[10px] font-black text-slate-300 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">{item.quantity} un</span>
+                                  <span className="text-xs font-black text-slate-200 bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg">{item.quantity} un</span>
                                   <button
                                     onClick={() => handleOpenForm(item.model, item.orientation)}
                                     className="p-2 bg-slate-900 border border-slate-700 text-slate-400 rounded-lg hover:text-white hover:border-slate-500 transition-all"
@@ -825,14 +825,14 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                 ) : productionQueue.length === 0 ? (
                   <div className="p-10 border border-dashed border-slate-700 rounded-xl text-center opacity-40">
                      <ClipboardList size={32} className="mx-auto mb-2 text-slate-500" />
-                     <p className="text-[10px] font-semibold uppercase text-slate-500">Sem demanda programada</p>
+                     <p className="text-xs font-semibold uppercase text-slate-500">Sem demanda programada</p>
                   </div>
                 ) : (
                   <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-sm">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-900 border-b border-slate-700 text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+                          <tr className="bg-slate-900 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-widest">
                             <th className="p-3">Servo</th>
                             <th className="p-3 text-center">Progresso</th>
                             <th className="p-3 text-right">Ação</th>
@@ -843,14 +843,14 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                             <tr key={key} className="hover:bg-slate-700/30 transition-colors">
                               <td className="p-3">
                                 <div className="flex flex-col">
-                                  <span className="text-xs font-semibold text-white">{stats.model}</span>
-                                  <span className="text-[9px] text-slate-500 font-medium uppercase">{ORIENTATION_LABELS[stats.orientation]}</span>
+                                  <span className="text-sm font-bold text-white">{stats.model}</span>
+                                  <span className="text-[11px] text-slate-400 font-semibold uppercase">{ORIENTATION_LABELS[stats.orientation]}</span>
                                 </div>
                               </td>
                               <td className="p-3 text-center">
                                 {stats.needed > 0 ? (
                                   <div className="flex flex-col items-center gap-1">
-                                    <span className="text-[10px] font-semibold text-white">{stats.assembled}/{stats.needed}</span>
+                                    <span className="text-xs font-bold text-white">{stats.assembled}/{stats.needed}</span>
                                     <div className="w-12 h-1 bg-slate-900 rounded-full overflow-hidden">
                                       <div className="h-full bg-slate-500" style={{ width: `${Math.min(100, (stats.assembled/stats.needed)*100)}%` }} />
                                     </div>
@@ -934,8 +934,8 @@ const AssemblyView: React.FC<AssemblyViewProps> = ({ units, orders, kits, manual
                            </td>
                            <td className="px-4 py-4">
                               <div className="flex flex-col">
-                                <span className="text-[10px] font-semibold text-slate-300 uppercase leading-none">{u.model}</span>
-                                 <span className="text-xs font-medium text-slate-500 uppercase tracking-widest mt-1">{u.orientation ? ORIENTATION_FULL_NAMES[u.orientation] : 'NORMAL'}</span>
+                                <span className="text-sm font-bold text-slate-100 uppercase leading-tight">{u.model}</span>
+                                 <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mt-1">{u.orientation ? ORIENTATION_FULL_NAMES[u.orientation] : 'NORMAL'}</span>
                               </div>
                            </td>
                            <td className="px-4 py-4">
